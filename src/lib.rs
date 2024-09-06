@@ -32,13 +32,19 @@ extern "C" fn write_callback(
 }
 
 impl Encoder for FlacEncoder {
-    fn new(sample_rate: u32, bits_per_sample: u32, channels: u32, frame_size: u32) -> Self {
+    fn new(
+        sample_rate: u32,
+        bits_per_sample: u32,
+        channels: u32,
+        frame_size: u32,
+        compression_level: u32,
+    ) -> Self {
         let buffer = Rc::new(RefCell::new(Vec::new()));
 
         let encoder = unsafe {
             let encoder = ffi::FLAC__stream_encoder_new();
             ffi::FLAC__stream_encoder_set_verify(encoder, true as i32);
-            ffi::FLAC__stream_encoder_set_compression_level(encoder, 5);
+            ffi::FLAC__stream_encoder_set_compression_level(encoder, compression_level);
             ffi::FLAC__stream_encoder_set_channels(encoder, channels);
             ffi::FLAC__stream_encoder_set_bits_per_sample(encoder, bits_per_sample);
             ffi::FLAC__stream_encoder_set_sample_rate(encoder, sample_rate);
@@ -183,7 +189,8 @@ mod tests {
         let mut samples = vec![0; (total_samples * CHANNELS) as usize];
         generate_sine_wave(&mut samples);
 
-        let mut encoder = FlacEncoder::new(SAMPLE_RATE, BITS_PER_SAMPLE, CHANNELS, total_samples);
+        let mut encoder =
+            FlacEncoder::new(SAMPLE_RATE, BITS_PER_SAMPLE, CHANNELS, total_samples, 5);
         encoder.init().expect("Failed to initialize FLAC encoder");
 
         // Buffer to hold encoded data
