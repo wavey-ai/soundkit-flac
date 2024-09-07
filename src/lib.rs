@@ -246,4 +246,9 @@ mod tests {
     fn test_flac_encoder_with_wave_32bit() {
         run_flac_encoder_with_wav_file("testdata/f32le.wav");
     }
+
+    #[test]
+    fn test_flac_encoder_with_wave_s32bit() {
+        run_flac_encoder_with_wav_file("testdata/s32le.wav");
+    }
 }
