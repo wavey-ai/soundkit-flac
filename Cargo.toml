@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 libc = "0.2.158"
-libflac-sys = "0.3.1"
-soundkit = "0.10.1"
+libflac-sys = { git = "https://github.com/mgeier/libflac-sys.git" }
+soundkit = { git = "https://github.com/wavey-ai/soundkit.git" }

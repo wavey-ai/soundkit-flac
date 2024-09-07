@@ -16,9 +16,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "cc"
-version = "1.1.16"
+version = "1.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9d013ecb737093c0e86b151a7b837993cf9ec6c502946cfb44bedc392421e0b"
+checksum = "a93fe60e2fc87b6ba2c117f67ae14f66e3fc7d6a1e612a25adb238cc980eadb3"
 dependencies = [
  "shlex",
 ]
@@ -41,8 +41,7 @@ checksum = "d8adc4bb1803a324070e64a98ae98f38934d91957a99cfb3a43dcbc01bc56439"
 [[package]]
 name = "libflac-sys"
 version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b0d9b582c1affe84b051d5a0faf3665e4da0c0b7b0e3b391213e3a5a670365b"
+source = "git+https://github.com/mgeier/libflac-sys.git#1e4a281c76d02a3a803ba3dd03574eee326bc4d5"
 dependencies = [
  "cmake",
  "libc",
@@ -128,9 +127,8 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "soundkit"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff5e462520b1e72c4632c1c34730db09e54a9d566f2da50f042fcd5f7e76cde7"
+version = "0.10.4"
+source = "git+https://github.com/wavey-ai/soundkit.git#1d8d367d5fa636d68a08f9e89e23ae675b9a8e7f"
 dependencies = [
  "byteorder",
  "rubato",

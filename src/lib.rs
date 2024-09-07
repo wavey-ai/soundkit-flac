@@ -12,7 +12,8 @@ pub struct FlacEncoder {
     channels: u32,
     bits_per_sample: u32,
     buffer: Rc<RefCell<Vec<u8>>>,
-    frame_size: u32,
+    frame_length: u32,
+    compression_level: u32,
 }
 
 extern "C" fn write_callback(
@@ -36,20 +37,13 @@ impl Encoder for FlacEncoder {
         sample_rate: u32,
         bits_per_sample: u32,
         channels: u32,
-        frame_size: u32,
+        frame_length: u32,
         compression_level: u32,
     ) -> Self {
         let buffer = Rc::new(RefCell::new(Vec::new()));
 
         let encoder = unsafe {
             let encoder = ffi::FLAC__stream_encoder_new();
-            ffi::FLAC__stream_encoder_set_verify(encoder, true as i32);
-            ffi::FLAC__stream_encoder_set_compression_level(encoder, compression_level);
-            ffi::FLAC__stream_encoder_set_channels(encoder, channels);
-            ffi::FLAC__stream_encoder_set_bits_per_sample(encoder, bits_per_sample);
-            ffi::FLAC__stream_encoder_set_sample_rate(encoder, sample_rate);
-            ffi::FLAC__stream_encoder_set_total_samples_estimate(encoder, frame_size as u64);
-
             encoder
         };
 
@@ -59,7 +53,8 @@ impl Encoder for FlacEncoder {
             channels,
             bits_per_sample,
             buffer,
-            frame_size,
+            frame_length,
+            compression_level,
         }
     }
 
@@ -91,6 +86,7 @@ impl Encoder for FlacEncoder {
 
     fn encode_i32(&mut self, input: &[i32], output: &mut [u8]) -> Result<usize, String> {
         self.buffer.borrow_mut().clear(); // Clear previous encoded data
+
         unsafe {
             let success = ffi::FLAC__stream_encoder_process_interleaved(
                 self.encoder,
@@ -106,11 +102,17 @@ impl Encoder for FlacEncoder {
                 ));
             }
         }
+
         let encoded_data = self.buffer.borrow();
         let encoded_len = encoded_data.len();
 
         if output.len() < encoded_len {
-            return Err("Output buffer too small".to_string());
+            return Err(format!(
+                "Output buffer of len {} too small for encoded data of len {}; input len was {}",
+                output.len(),
+                encoded_len,
+                input.len(),
+            ));
         }
 
         output[..encoded_len].copy_from_slice(&encoded_data);
@@ -123,8 +125,9 @@ impl Encoder for FlacEncoder {
             ffi::FLAC__stream_encoder_delete(self.encoder);
 
             self.encoder = ffi::FLAC__stream_encoder_new();
+            ffi::FLAC__stream_encoder_set_blocksize(self.encoder, self.frame_length);
             ffi::FLAC__stream_encoder_set_verify(self.encoder, true as i32);
-            ffi::FLAC__stream_encoder_set_compression_level(self.encoder, 5);
+            ffi::FLAC__stream_encoder_set_compression_level(self.encoder, self.compression_level);
             ffi::FLAC__stream_encoder_set_channels(self.encoder, self.channels);
             ffi::FLAC__stream_encoder_set_bits_per_sample(self.encoder, self.bits_per_sample);
             ffi::FLAC__stream_encoder_set_sample_rate(self.encoder, self.sample_rate);
@@ -163,50 +166,84 @@ impl Drop for FlacEncoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::f64::consts::PI;
+    use soundkit::audio_bytes::{f32le_to_i32, s16le_to_i32, s24le_to_i32};
+    use soundkit::wav::WavStreamProcessor;
     use std::fs::File;
+    use std::io::Read;
     use std::io::Write;
 
-    const SAMPLE_RATE: u32 = 44100;
-    const CHANNELS: u32 = 2;
-    const BITS_PER_SAMPLE: u32 = 16;
-    const DURATION_SECS: u32 = 1;
-    const FREQUENCY: f64 = 440.0; // A4 note
+    fn run_flac_encoder_with_wav_file(file_path: &str) {
+        let frame_size = 4096;
+        let mut file = File::open(file_path).unwrap();
+        let mut file_buffer = Vec::new();
+        file.read_to_end(&mut file_buffer).unwrap();
 
-    fn generate_sine_wave(samples: &mut [i32]) {
-        let total_samples = SAMPLE_RATE * DURATION_SECS;
-        for i in 0..total_samples {
-            let sample_value = ((i as f64 * FREQUENCY * 2.0 * PI / SAMPLE_RATE as f64).sin()
-                * i16::MAX as f64) as i32;
-            samples[i as usize * 2] = sample_value; // Left channel
-            samples[i as usize * 2 + 1] = sample_value; // Right channel
+        let mut processor = WavStreamProcessor::new();
+        let audio_data = processor.add(&file_buffer).unwrap().unwrap();
+
+        let mut encoder = FlacEncoder::new(
+            audio_data.sampling_rate(),
+            audio_data.bits_per_sample() as u32,
+            audio_data.channel_count() as u32,
+            0 as u32,
+            5,
+        );
+        encoder.init().expect("Failed to initialize FLAC encoder");
+
+        let i32_samples = match audio_data.bits_per_sample() {
+            16 => {
+                // this doesn't scale the 16 bit samples - important!
+                s16le_to_i32(audio_data.data())
+            }
+            24 => s24le_to_i32(audio_data.data()),
+            32 => f32le_to_i32(audio_data.data()),
+            _ => {
+                vec![0i32]
+            }
+        };
+
+        let mut encoded_data = Vec::new();
+        let chunk_size = frame_size * audio_data.channel_count() as usize;
+
+        for (i, chunk) in i32_samples.chunks(chunk_size).enumerate() {
+            let mut output_buffer = vec![0u8; chunk.len() * std::mem::size_of::<i32>() * 10];
+
+            match encoder.encode_i32(chunk, &mut output_buffer) {
+                Ok(encoded_len) => {
+                    println!(
+                        "Chunk {}: Input size = {} bytes, Encoded size = {} bytes",
+                        i,
+                        chunk.len() * std::mem::size_of::<i32>(),
+                        encoded_len
+                    );
+                    encoded_data.extend_from_slice(&output_buffer[..encoded_len]);
+                }
+                Err(e) => {
+                    panic!("Failed to encode chunk {}: {:?}", i, e);
+                }
+            }
         }
+
+        let mut file =
+            File::create(file_path.to_owned() + ".flac").expect("Failed to create output file");
+        file.write_all(&encoded_data)
+            .expect("Failed to write to output file");
+
+        encoder.reset().expect("Failed to reset encoder");
     }
 
     #[test]
-    fn test_flac_encoder_with_sine_wave() {
-        let total_samples = SAMPLE_RATE * DURATION_SECS;
-        let mut samples = vec![0; (total_samples * CHANNELS) as usize];
-        generate_sine_wave(&mut samples);
+    fn test_flac_encoder_with_wave_16bit() {
+        run_flac_encoder_with_wav_file("testdata/s16le.wav");
+    }
 
-        let mut encoder =
-            FlacEncoder::new(SAMPLE_RATE, BITS_PER_SAMPLE, CHANNELS, total_samples, 5);
-        encoder.init().expect("Failed to initialize FLAC encoder");
+    #[test]
+    fn test_flac_encoder_with_wave_24bit() {
+        run_flac_encoder_with_wav_file("testdata/s24le.wav");
+    }
 
-        // Buffer to hold encoded data
-        let mut encoded_data = vec![0u8; 1024 * 1024]; // 1MB buffer
-
-        let encoded_len = encoder
-            .encode_i32(&samples, &mut encoded_data)
-            .expect("Failed to encode sine wave");
-
-        // Write encoded data to a file
-        let mut file =
-            File::create("testdata/sinewave.flac").expect("Failed to create output file");
-        file.write_all(&encoded_data[..encoded_len])
-            .expect("Failed to write to output file");
-
-        // Finish and clean up the encoder
-        encoder.reset().expect("Failed to reset encoder");
+    #[test]
+    fn test_flac_encoder_with_wave_32bit() {
+        run_flac_encoder_with_wav_file("testdata/f32le.wav");
     }
 }
