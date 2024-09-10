@@ -11,6 +11,7 @@ pub struct FlacEncoder {
     buffer: Rc<RefCell<Vec<u8>>>,
     frame_length: u32,
     compression_level: u32,
+    stream_info: Vec<u8>,
 }
 
 extern "C" fn write_callback(
@@ -27,6 +28,33 @@ extern "C" fn write_callback(
         output.borrow_mut().extend_from_slice(slice);
     }
     ffi::FLAC__STREAM_ENCODER_WRITE_STATUS_OK
+}
+
+extern "C" fn metadata_callback(
+    _encoder: *const ffi::FLAC__StreamEncoder,
+    metadata: *const ffi::FLAC__StreamMetadata,
+    client_data: *mut libc::c_void,
+) {
+    unsafe {
+        let encoder = &mut *(client_data as *mut FlacEncoder);
+        let metadata = &*metadata;
+
+        match metadata.type_ {
+            ffi::FLAC__METADATA_TYPE_STREAMINFO => {
+                // Get the raw bytes of the STREAMINFO block
+                let stream_info_ptr = &metadata.data.stream_info
+                    as *const ffi::FLAC__StreamMetadata_StreamInfo
+                    as *const u8;
+                let stream_info_len = std::mem::size_of::<ffi::FLAC__StreamMetadata_StreamInfo>();
+                let stream_info_bytes =
+                    std::slice::from_raw_parts(stream_info_ptr, stream_info_len);
+
+                // Set the raw streaming bytes to encoder.stream_info
+                encoder.stream_info = stream_info_bytes.to_vec();
+            }
+            _ => {}
+        }
+    }
 }
 
 impl Encoder for FlacEncoder {
@@ -52,29 +80,16 @@ impl Encoder for FlacEncoder {
             buffer,
             frame_length,
             compression_level,
+            stream_info: Vec::new(),
         }
     }
 
     fn init(&mut self) -> Result<(), String> {
-        let status = unsafe {
-            ffi::FLAC__stream_encoder_init_stream(
-                self.encoder,
-                Some(write_callback),
-                None, // seek callback
-                None, // tell callback
-                None, // metadata callback
-                Rc::into_raw(self.buffer.clone()) as *mut libc::c_void,
-            )
-        };
+        return self.reset();
+    }
 
-        if status != ffi::FLAC__STREAM_ENCODER_INIT_STATUS_OK {
-            return Err(format!(
-                "Failed to initialize FLAC encoder, state: {}",
-                status
-            ));
-        } else {
-            Ok(())
-        }
+    fn stream_info(&self) -> Vec<u8> {
+        self.stream_info.clone()
     }
 
     fn encode_i16(&mut self, input: &[i16], output: &mut [u8]) -> Result<usize, String> {
@@ -85,21 +100,10 @@ impl Encoder for FlacEncoder {
         self.buffer.borrow_mut().clear(); // Clear previous encoded data
 
         unsafe {
-            let scaled_input: Vec<i32> = match self.bits_per_sample {
-                16 => input.to_vec(),
-                24 => input.iter().map(|&x| x >> 8).collect(),
-                32 => input.iter().map(|&x| x >> 8).collect(),
-                _ => {
-                    return Err(format!(
-                        "Unsupported bits_per_sample: {}",
-                        self.bits_per_sample
-                    ))
-                }
-            };
             let success = ffi::FLAC__stream_encoder_process_interleaved(
                 self.encoder,
-                scaled_input.as_ptr(),
-                (scaled_input.len() / self.channels as usize) as u32,
+                input.as_ptr() as *const libflac_sys::FLAC__int32,
+                (input.len() / self.channels as usize) as u32,
             );
 
             if success == 0 {
@@ -137,6 +141,7 @@ impl Encoder for FlacEncoder {
             ffi::FLAC__stream_encoder_set_verify(self.encoder, true as i32);
             ffi::FLAC__stream_encoder_set_compression_level(self.encoder, self.compression_level);
             ffi::FLAC__stream_encoder_set_channels(self.encoder, self.channels);
+
             ffi::FLAC__stream_encoder_set_bits_per_sample(self.encoder, self.bits_per_sample);
             ffi::FLAC__stream_encoder_set_sample_rate(self.encoder, self.sample_rate);
 
@@ -145,7 +150,7 @@ impl Encoder for FlacEncoder {
                 Some(write_callback),
                 None, // seek callback
                 None, // tell callback
-                None, // metadata callback
+                None,
                 Rc::into_raw(self.buffer.clone()) as *mut libc::c_void,
             );
 
@@ -181,13 +186,15 @@ mod tests {
     use std::io::Write;
 
     fn run_flac_encoder_with_wav_file(file_path: &str) {
-        let frame_size = 4096;
+        let frame_size = 3600;
         let mut file = File::open(file_path).unwrap();
         let mut file_buffer = Vec::new();
         file.read_to_end(&mut file_buffer).unwrap();
 
         let mut processor = WavStreamProcessor::new();
         let audio_data = processor.add(&file_buffer).unwrap().unwrap();
+
+        dbg!(file_path, audio_data.sampling_rate());
 
         let mut encoder = FlacEncoder::new(
             audio_data.sampling_rate(),
@@ -213,17 +220,15 @@ mod tests {
         let mut encoded_data = Vec::new();
         let chunk_size = frame_size * audio_data.channel_count() as usize;
 
+        let mut n = 0;
         for (i, chunk) in i32_samples.chunks(chunk_size).enumerate() {
-            let mut output_buffer = vec![0u8; chunk.len() * std::mem::size_of::<i32>() * 10];
+            let mut output_buffer = vec![0u8; chunk.len() * std::mem::size_of::<i32>() * 2];
 
             match encoder.encode_i32(chunk, &mut output_buffer) {
                 Ok(encoded_len) => {
-                    println!(
-                        "Chunk {}: Input size = {} bytes, Encoded size = {} bytes",
-                        i,
-                        chunk.len() * std::mem::size_of::<i32>(),
-                        encoded_len
-                    );
+                    if encoded_len > 0 {
+                        n += 1
+                    }
                     encoded_data.extend_from_slice(&output_buffer[..encoded_len]);
                 }
                 Err(e) => {
@@ -231,6 +236,8 @@ mod tests {
                 }
             }
         }
+
+        dbg!(n);
 
         let mut file =
             File::create(file_path.to_owned() + ".flac").expect("Failed to create output file");
@@ -253,6 +260,11 @@ mod tests {
     #[test]
     fn test_flac_encoder_with_wave_32bit() {
         run_flac_encoder_with_wav_file("testdata/f32le.wav");
+    }
+
+    #[test]
+    fn test_flac_encoder_with_wave_lori() {
+        run_flac_encoder_with_wav_file("testdata/lori.wav");
     }
 
     //    #[test]
