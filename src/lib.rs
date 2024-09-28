@@ -11,7 +11,6 @@ pub struct FlacEncoder {
     buffer: Rc<RefCell<Vec<u8>>>,
     frame_length: u32,
     compression_level: u32,
-    stream_info: Vec<u8>,
 }
 
 extern "C" fn write_callback(
@@ -28,33 +27,6 @@ extern "C" fn write_callback(
         output.borrow_mut().extend_from_slice(slice);
     }
     ffi::FLAC__STREAM_ENCODER_WRITE_STATUS_OK
-}
-
-extern "C" fn metadata_callback(
-    _encoder: *const ffi::FLAC__StreamEncoder,
-    metadata: *const ffi::FLAC__StreamMetadata,
-    client_data: *mut libc::c_void,
-) {
-    unsafe {
-        let encoder = &mut *(client_data as *mut FlacEncoder);
-        let metadata = &*metadata;
-
-        match metadata.type_ {
-            ffi::FLAC__METADATA_TYPE_STREAMINFO => {
-                // Get the raw bytes of the STREAMINFO block
-                let stream_info_ptr = &metadata.data.stream_info
-                    as *const ffi::FLAC__StreamMetadata_StreamInfo
-                    as *const u8;
-                let stream_info_len = std::mem::size_of::<ffi::FLAC__StreamMetadata_StreamInfo>();
-                let stream_info_bytes =
-                    std::slice::from_raw_parts(stream_info_ptr, stream_info_len);
-
-                // Set the raw streaming bytes to encoder.stream_info
-                encoder.stream_info = stream_info_bytes.to_vec();
-            }
-            _ => {}
-        }
-    }
 }
 
 impl Encoder for FlacEncoder {
@@ -80,16 +52,11 @@ impl Encoder for FlacEncoder {
             buffer,
             frame_length,
             compression_level,
-            stream_info: Vec::new(),
         }
     }
 
     fn init(&mut self) -> Result<(), String> {
         return self.reset();
-    }
-
-    fn stream_info(&self) -> Vec<u8> {
-        self.stream_info.clone()
     }
 
     fn encode_i16(&mut self, input: &[i16], output: &mut [u8]) -> Result<usize, String> {
