@@ -143,7 +143,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "soundkit"
 version = "0.11.8"
-source = "git+https://github.com/wavey-ai/soundkit.git#e7edc2750b3e346e89985a3c4fb96eae23121eed"
+source = "git+https://github.com/wavey-ai/soundkit.git#d5e380f50e4e81793fa0e1d6d039c457a6847ea1"
 dependencies = [
  "byteorder",
  "bytes",
