@@ -4,6 +4,7 @@ use libflac_sys::*;
 use soundkit::audio_packet::{Decoder, Encoder};
 use std::cell::RefCell;
 use std::rc::Rc;
+use tracing::{debug, error, info};
 
 pub struct FlacEncoder {
     encoder: *mut ffi::FLAC__StreamEncoder,
@@ -302,19 +303,19 @@ unsafe extern "C" fn error_callback_decode(
 ) {
     match status {
         ffi::FLAC__STREAM_DECODER_ERROR_STATUS_LOST_SYNC => {
-            println!("Decoder error: Lost sync with FLAC stream");
+            debug!("Decoder error: Lost sync with FLAC stream");
         }
         ffi::FLAC__STREAM_DECODER_ERROR_STATUS_BAD_HEADER => {
-            println!("Decoder error: Bad FLAC stream header");
+            error!("Decoder error: Bad FLAC stream header");
         }
         ffi::FLAC__STREAM_DECODER_ERROR_STATUS_FRAME_CRC_MISMATCH => {
-            println!("Decoder error: Frame CRC mismatch");
+            error!("Decoder error: Frame CRC mismatch");
         }
         ffi::FLAC__STREAM_DECODER_ERROR_STATUS_UNPARSEABLE_STREAM => {
-            println!("Decoder error: Unparseable stream");
+            error!("Decoder error: Unparseable stream");
         }
         _ => {
-            println!("Decoder error: Unknown error");
+            error!("Decoder error: Unknown error");
         }
     }
 }
