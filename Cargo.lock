@@ -31,9 +31,9 @@ checksum = "428d9aa8fbc0670b7b8d6030a7fadd0f86151cae55e4dbbece15f3780a3dfaf3"
 
 [[package]]
 name = "cc"
-version = "1.1.24"
+version = "1.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "812acba72f0a070b003d3697490d2b55b837230ae7c6c6497f05cc2ddbb8d938"
+checksum = "2e80e3b6a3ab07840e1cae9b0666a63970dc28e8ed5ffbcdacbfc760c281bfc1"
 dependencies = [
  "shlex",
 ]
@@ -143,7 +143,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "soundkit"
 version = "0.11.8"
-source = "git+https://github.com/wavey-ai/soundkit.git#d61eb320ddc71d26649641daccfa9fefb29c4d48"
+source = "git+https://github.com/wavey-ai/soundkit.git#e7edc2750b3e346e89985a3c4fb96eae23121eed"
 dependencies = [
  "byteorder",
  "bytes",
